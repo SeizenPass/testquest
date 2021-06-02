@@ -25,3 +25,15 @@ func TestMain(t *testing.T) {
 		t.Errorf("results not match\nGot:\n%v\nExpected:\n%v", fastResult, originalResult)
 	}
 }
+
+func BenchmarkOriginalSolution(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		OriginalSolution(ioutil.Discard)
+	}
+}
+
+func BenchmarkOurSolution(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		fast.OurSolution(ioutil.Discard)
+	}
+}
