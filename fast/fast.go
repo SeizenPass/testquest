@@ -4,159 +4,81 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
-	"os"
+	"io/ioutil"
+	"sort"
 )
 
-type writer struct {
-	writing_buf *[]byte
-}
-
-func (w *writer) write_to_temp_buf(byte byte) {
-	*w.writing_buf = append(*w.writing_buf, byte)
-	//fmt.Println("WRITER: Written bytes to writing_buf", byte)
-}
-
-func (w *writer) write_to_chan(ch chan []byte) {
-	ch <- *w.writing_buf
-	//fmt.Println("WRITER: Send byte slice to chan", writing_buf)
-	*w.writing_buf = nil
-}
-
-type reader struct {
-	words  *[]record
-	rating *[]int
-}
-
-type record struct {
-	word    []byte
-	counter int
-	checked bool
-}
-
-func (r *reader) contains(element []byte) (bool, int) {
-	for index, v := range *r.words {
-		if bytes.Equal(v.word, element) {
-			return true, index
-		}
-		index = index + 1
-	}
-	return false, 0
-}
-
-func (r *reader) read_from_chan(ch chan []byte) {
-	for node := range ch {
-		state, index := r.contains(node)
-		if state {
-			(*r.words)[index].counter++
-		} else {
-			record := record{node, 1, false}
-			*r.words = append(*r.words, record)
-		}
+func check(e error) {
+	if e != nil {
+		panic(e)
 	}
 }
 
-func (r *reader) get20mostfrequentwords() {
-	list := make([]int, 20)
-	r.rating = &list
-	for index, _ := range *r.rating {
-		temp := 0
-		inss := 0
-		for index, v := range *r.words {
-			if (v.checked == false) && (v.counter > temp) {
-				temp = v.counter
-				inss = index
+func isLetter(byteVal byte) bool {
+	if (byteVal >= 65 && byteVal <= 90) || (byteVal >= 97 && byteVal <= 122) {
+		return true
+	}
+	return false
+}
+
+func readBytes(output chan []byte, input []byte) {
+	var slice []byte
+	for _, v := range input {
+		if isLetter(v) {
+			if v >= 65 && v <= 90 {
+				v += 32
 			}
+			slice = append(slice, v)
+		} else if len(slice) != 0 {
+			output <- slice
+			slice = []byte{}
 		}
-		(*r.words)[inss].checked = true
-		(*r.rating)[index] = inss
 	}
-
+	close(output)
 }
 
-func (r *reader) print(out io.Writer) {
-	for _, v := range *r.rating {
-		fmt.Fprintf(out, "%v %v", (*r.words)[v].counter, string((*r.words)[v].word))
-		fmt.Fprintln(out)
-	}
+type word struct {
+	data    []byte
+	counter int
 }
 
-//I created two structs with the methods to write and read from the shared channel of []bytes. String is not allowed, so we assume that slice of bytes is a word.
-//Writer and reader works in different goroutines.
-
-//Writer goes through the text and collects bytes to buffer until it reaches the space(which means the end of the word),
-//or reaches the symbol which is not a letter(in that case we check do we already have a word in our buffer).
-//After this it sends the content of the buffer to channel, and continues to go through the text
-
-//At the same time reader listens to the channel. Whenever it gets the word ([]byte) it checks does it have the same word inside the slice of already written words.
-//If it does, it increases the counter of this record, if no, it appends the record to it.
-//After writer and reader both finished working with a channel, reader goes through the slice of words to determine the most 20 frequent words. I did this with an assumption that,
-//any sorting between approximately 74k elements while reading, or quick sorting 10k elements after reading,
-//will lead to way more comparisons than going through the slice and just retrieving 20 elements with the largest counter(10k elements in slice, 74k words in text)
-//P.S Using one goroutine showed better execution time, idk why, but I decided to go with two goroutines version.
-//I used approx 5 hours to code version with no goroutines, and one extra hour to code version that u see
-
-//
-func OurSolution(out io.Writer) {
-	file, err := os.Open("mobydick.txt") //open file
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if err = file.Close(); err != nil {
-			log.Fatal(err)
-		}
-	}()
-	readingBuf := make([]byte, 1) //read file by one letter only
-
-	words := make([]record, 0)
-	reader := reader{words: &words} //creating reader
-
-	writingBuf := make([]byte, 0)
-	writer := writer{&writingBuf} //writer
-
-	ch := make(chan []byte) //channel that we will use to pass slices of bytes from writer to reader
-	//btw reader listens in range of elements that are passed to channel, it will stop working when there are no elements left, so we don't need any wait groups
-
-	go func() {
-		for {
-			//reading file's letters one by one
-			n, err := file.Read(readingBuf)
-
-			if n > 0 {
-				byteVal := readingBuf[0]
-				if byteVal >= 65 && byteVal <= 90 { //if symbol is uppercase letter
-
-					byteVal = byteVal + 32
-					writer.write_to_temp_buf(byteVal) //writing to temporary buffer
-
-				} else if byteVal >= 97 && byteVal <= 122 { //if symbol is lowercase letter
-
-					writer.write_to_temp_buf(byteVal) //writing to temporary buffer
-
-				} else if byteVal == 32 && len(writingBuf) != 0 { //if symbol is [space], and we have letters in our buffer
-
-					writer.write_to_chan(ch) //send temporary buffer content to channel, empty the temporary buffer
-
-				} else if ((byteVal > 122 || byteVal < 65) || (byteVal > 90 && byteVal < 97)) && len(writingBuf) != 0 { //if symbol is any other than letter or space, and we have letters in our buffer
-
-					writer.write_to_chan(ch) //send temporary buffer content to channel, empty the temporary buffer
-
-				} else {
-					continue
+func acceptBytes(input chan []byte, out io.Writer) {
+	var words []*word
+	for data := range input {
+		if words == nil {
+			words = append(words, &word{
+				data:    data,
+				counter: 1,
+			})
+		} else {
+			found := false
+			for i, v := range words {
+				if bytes.Equal(v.data, data) {
+					words[i].counter++
+					found = true
+					break
 				}
 			}
-
-			if err == io.EOF {
-				writer.write_to_chan(ch) //send temporary buffer content to channel, empty the temporary buffer
-				break
+			if !found {
+				words = append(words, &word{
+					data:    data,
+					counter: 1,
+				})
 			}
 		}
-		close(ch) //close channel, so our that our reader will stop working after there are no elements left, in other case reader will cause deadlock
-	}()
+	}
+	sort.Slice(words, func(i, j int) bool {
+		return words[i].counter > words[j].counter
+	})
+	for i := 0; i < 20; i++ {
+		fmt.Fprintf(out, "%v %v\n", words[i].counter, string(words[i].data))
+	}
+}
 
-	reader.read_from_chan(ch) //reading from channel in range of elements in channel
-
-	reader.get20mostfrequentwords() //getting 20 most frequent words, and write it to rating slice
-	reader.print(out)               //print elements from words according to the rating list
+func OurSolution(out io.Writer) {
+	f, err := ioutil.ReadFile("mobydick.txt")
+	check(err)
+	output := make(chan []byte)
+	go readBytes(output, f)
+	acceptBytes(output, out)
 }
