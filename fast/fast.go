@@ -71,14 +71,14 @@ func acceptBytes(input chan []byte, out io.Writer) {
 		return words[i].counter > words[j].counter
 	})
 	for i := 0; i < 20; i++ {
-		fmt.Fprintf(out, "%v %v\n", words[i].counter, string(words[i].data))
+		_, _ = fmt.Fprintf(out, "%v %v\n", words[i].counter, string(words[i].data))
 	}
 }
 
 func OurSolution(out io.Writer) {
 	f, err := ioutil.ReadFile("mobydick.txt")
 	check(err)
-	output := make(chan []byte, 100)
+	output := make(chan []byte, 100) // buffered to send data while processing
 	go readBytes(output, f)
 	acceptBytes(output, out)
 }
