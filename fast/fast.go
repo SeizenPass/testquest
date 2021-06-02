@@ -78,7 +78,7 @@ func acceptBytes(input chan []byte, out io.Writer) {
 func OurSolution(out io.Writer) {
 	f, err := ioutil.ReadFile("mobydick.txt")
 	check(err)
-	output := make(chan []byte)
+	output := make(chan []byte, 100)
 	go readBytes(output, f)
 	acceptBytes(output, out)
 }
