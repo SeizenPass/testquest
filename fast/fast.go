@@ -1,4 +1,4 @@
-package main
+package fast
 
 import (
 	"bytes"
@@ -97,7 +97,7 @@ func (r *reader) print(out io.Writer) {
 //I used approx 5 hours to code version with no goroutines, and one extra hour to code version that u see
 
 //
-func OriginalSolution(out io.Writer) {
+func OurSolution(out io.Writer) {
 	file, err := os.Open("mobydick.txt") //open file
 	if err != nil {
 		log.Fatal(err)
